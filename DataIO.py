@@ -16,6 +16,8 @@ class DataSet:
         self.features = features
         self.labels = labels
 
+        self.sanity_check()
+
     def loaddata(self, datafile):
         labels = []
         features = []
@@ -26,4 +28,9 @@ class DataSet:
                 features.append(list(map(float, x.split(','))))
         self.features = np.array(features)
         self.labels = np.array(labels)
+
+    def sanity_check(self):
+        if str(type(self.features)) == "<class 'scipy.sparse.coo.coo_matrix'>":
+            self.features = self.features.tocsr()
+
 
