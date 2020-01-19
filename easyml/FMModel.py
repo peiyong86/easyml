@@ -6,6 +6,7 @@ from sklearn.metrics import roc_auc_score
 
 from .DataIO import DataGenerator
 from .Loss import LogLoss, MSE, TaylorLoss
+from .Optimizer import SGD, AdaGrad
 from .Util import Counter, StdLogger, clip_gradient
 
 
@@ -14,7 +15,7 @@ logger = StdLogger()
 
 class FMParam:
     def __init__(self,
-                 lr=0.01,
+                 learning_rate=0.01,
                  embed_size=10,
                  init_stdev=0.1,
                  decay=0.5,
@@ -24,8 +25,9 @@ class FMParam:
                  regW=0,
                  regV=0.01,
                  loss='mse',
+                 opt ='SGD',
                  predict_batch_size=1000):
-        self.lr = lr
+        self.learning_rate = learning_rate
         self.embed_size = embed_size
         self.init_stdev = init_stdev
         self.decay = decay
@@ -36,11 +38,14 @@ class FMParam:
         self.regW = regW
         self.regV = regV
         self.predict_batch_size = predict_batch_size
+        self.opt = opt
 
 
 class FM:
     def __init__(self, param=None):
         self.param = param
+
+        # Loss
         if param.loss == 'mse':
             self.loss = MES()
         elif param.loss == 'log':
@@ -50,13 +55,21 @@ class FM:
         else:
             raise Exception('Unsupported loss type {}'.format(param.loss))
 
+        # optimizer
+        if param.opt == 'SGD':
+            self.optimizer = SGD(param.learning_rate, param.decay, param.decay_step)
+        elif param.opt == 'AdaGrad':
+            self.optimizer = AdaGrad(param.learning_rate)
+        else:
+            raise Exception("Unknow optimizer type {}".format(param.opt))
+
         # weights
         self.w = None
         self.embed = None
         self.b = None
 
         # train param
-        self.lr = param.lr
+        # self.lr = param.lr
         self.embed_size = param.embed_size
         self.iter_num = param.epochs
         self.batch_size = param.batch_size
@@ -68,13 +81,13 @@ class FM:
         self.embed = np.random.normal(scale=self.param.init_stdev, 
         	size=(feature_len, self.embed_size))
 
-    def update_weights(self, lr, gradient_w, gradient_embed, gradient_b):
+    def update_weights(self, gradient_w, gradient_embed, gradient_b, step):
         # self.w = self.w - clip_gradient(lr * gradient_w)
         # self.embed = self.embed - clip_gradient(lr * gradient_embed)
         # self.b = self.b - clip_gradient(lr * gradient_b)
-        self.w = self.w - lr * gradient_w
-        self.embed = self.embed - lr * gradient_embed
-        self.b = self.b - lr * gradient_b
+        self.w = self.optimizer.update_weights(self.w, gradient_w, step)
+        self.embed = self.optimizer.update_weights(self.embed, gradient_embed, step)
+        self.b = self.optimizer.update_weights(self.b, gradient_b, step)
 
     def cal_forward(self, features):
         linear_part = np.dot(features, self.w)
@@ -146,14 +159,14 @@ class FM:
         batch_num = data_generator.get_batch_num()
 
         for i in range(self.iter_num):
-            lr = self.lr * np.power(self.param.decay,
-                                    np.floor(i/self.param.decay_step))
-
             for batch_i, batch_data in enumerate(data_generator.data_generator()):
                 batch_x, batch_y = batch_data
                 pred = self.cal_forward(batch_x)
                 gradient_w, gradient_embed, gradient_b = self.cal_gradient(pred, batch_y, batch_x)
-                self.update_weights(lr, gradient_w, gradient_embed, gradient_b)
+
+                # Update weights
+                self.update_weights(gradient_w, gradient_embed, gradient_b, step=i)
+
                 train_loss = self.loss.calculate_loss(pred, batch_y)
                 reg_loss = self.reg_loss()
 
@@ -162,7 +175,7 @@ class FM:
                 log_str = ' '.join(map(str,
                                        ['epoch ', i,
                                         ' batch {} / {} '.format(batch_i, batch_num),
-                                        ' lr ', lr,
+                                        ' lr ', self.optimizer.lr(),
                                         ' loss ', train_loss,
                                         ' reg loss ', reg_loss]))
                 # logger.log(log_str)
@@ -173,7 +186,7 @@ class FM:
             mean_reg_loss = reg_loss_counter.getvalue()
             log_str = ' '.join(map(str,
                                    ['epoch ', i,
-                                    ' lr ', lr,
+                                    ' lr ', self.optimizer.lr(),
                                     ' loss ', mean_train_loss,
                                     ' reg loss ', mean_reg_loss,
                                     ' ', re]))
