@@ -6,7 +6,7 @@ from sklearn.metrics import roc_auc_score
 
 from .DataIO import DataGenerator
 from .Loss import LogLoss, MSE, TaylorLoss
-from .Optimizer import SGD, AdaGrad, RMSProp
+from .Optimizer import SGD, AdaGrad, RMSProp, AdaDelta
 from .Util import Counter, StdLogger, clip_gradient
 
 
@@ -82,11 +82,17 @@ class FM:
         # optimizer
         param = self.param
         if param.opt == 'SGD':
-            self.optimizer = SGD(param.learning_rate, param.decay, param.decay_step)
+            self.optimizer = SGD(learning_rate=param.learning_rate, 
+                decay=param.decay, 
+                decay_step=param.decay_step)
         elif param.opt == 'AdaGrad':
-            self.optimizer = AdaGrad(param.learning_rate, self.weights)
+            self.optimizer = AdaGrad(learning_rate=param.learning_rate, 
+                weights=self.weights)
         elif param.opt == 'RMSProp':
-            self.optimizer = RMSProp(param.learning_rate, self.weights)
+            self.optimizer = RMSProp(learning_rate=param.learning_rate, 
+                weights=self.weights)
+        elif param.opt == 'AdaDelta':
+            self.optimizer = AdaDelta(weights=self.weights)
         else:
             raise Exception("Unknow optimizer type {}".format(param.opt))
 
