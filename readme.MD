@@ -1,0 +1,6 @@
+Optimizer:
+
+- SGD
+- AdaGrad
+- RMSProp
+

@@ -6,7 +6,7 @@ from sklearn.metrics import roc_auc_score
 
 from .DataIO import DataGenerator
 from .Loss import LogLoss, MSE, TaylorLoss
-from .Optimizer import SGD, AdaGrad
+from .Optimizer import SGD, AdaGrad, RMSProp
 from .Util import Counter, StdLogger, clip_gradient
 
 
@@ -55,18 +55,12 @@ class FM:
         else:
             raise Exception('Unsupported loss type {}'.format(param.loss))
 
-        # optimizer
-        if param.opt == 'SGD':
-            self.optimizer = SGD(param.learning_rate, param.decay, param.decay_step)
-        elif param.opt == 'AdaGrad':
-            self.optimizer = AdaGrad(param.learning_rate)
-        else:
-            raise Exception("Unknow optimizer type {}".format(param.opt))
-
         # weights
-        self.w = None
-        self.embed = None
-        self.b = None
+        # self.w = None
+        # self.embed = None
+        # self.b = None
+        self.weights = {'w': None, 'embed': None, 'b': None}
+        self.optimizer = None
 
         # train param
         # self.lr = param.lr
@@ -76,18 +70,59 @@ class FM:
         self.predict_batch_size = param.predict_batch_size
 
     def init_model(self, feature_len):
+        # init weights
         self.w = np.zeros(feature_len)
-        self.b = 0
+        self.b = np.zeros(1) 
         self.embed = np.random.normal(scale=self.param.init_stdev, 
         	size=(feature_len, self.embed_size))
+        # init optimizer
+        self.init_optimizer()
+
+    def init_optimizer(self):
+        # optimizer
+        param = self.param
+        if param.opt == 'SGD':
+            self.optimizer = SGD(param.learning_rate, param.decay, param.decay_step)
+        elif param.opt == 'AdaGrad':
+            self.optimizer = AdaGrad(param.learning_rate, self.weights)
+        elif param.opt == 'RMSProp':
+            self.optimizer = RMSProp(param.learning_rate, self.weights)
+        else:
+            raise Exception("Unknow optimizer type {}".format(param.opt))
+
+    @property
+    def w(self):
+        return self.weights['w']
+
+    @w.setter
+    def w(self, w):
+        self.weights['w'] = w
+    
+    @property
+    def b(self):
+        return self.weights['b']
+
+    @b.setter
+    def b(self, b):
+        self.weights['b'] = b
+
+    @property
+    def embed(self):
+        return self.weights['embed']
+
+    @embed.setter
+    def embed(self, embed):
+        self.weights['embed'] = embed
 
     def update_weights(self, gradient_w, gradient_embed, gradient_b, step):
         # self.w = self.w - clip_gradient(lr * gradient_w)
         # self.embed = self.embed - clip_gradient(lr * gradient_embed)
         # self.b = self.b - clip_gradient(lr * gradient_b)
-        self.w = self.optimizer.update_weights(self.w, gradient_w, step)
-        self.embed = self.optimizer.update_weights(self.embed, gradient_embed, step)
-        self.b = self.optimizer.update_weights(self.b, gradient_b, step)
+        # self.w = self.optimizer.update_weights(self.w, gradient_w, step)
+        # self.embed = self.optimizer.update_weights(self.embed, gradient_embed, step)
+        # self.b = self.optimizer.update_weights(self.b, gradient_b, step)
+        gradients = {'w': gradient_w, 'b': gradient_b, 'embed': gradient_embed}
+        self.weights = self.optimizer.update_weights(self.weights, gradients, step)
 
     def cal_forward(self, features):
         linear_part = np.dot(features, self.w)
@@ -148,6 +183,7 @@ class FM:
         features = data.features
         labels = data.labels
         n_samples, n_features = features.shape
+
         self.init_model(n_features)
 
         pre_loss = None

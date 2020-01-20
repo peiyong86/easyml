@@ -16,6 +16,10 @@ class Optimizer(ABC):
     def update_weights(self, weights):
         pass
 
+    @abstractmethod
+    def lr(self):
+        pass
+
 
 class SGD(Optimizer):
     def __init__(self, learning_rate, decay, decay_step):
@@ -29,14 +33,47 @@ class SGD(Optimizer):
 
     def update_weights(self, weights, gradients, step):
         self.step = step
-        weights = weights - self.lr() * gradients
+        for k,v in weights.items():
+            weights[k] = weights[k] - self.lr() * gradients[k]
+        # weights = weights - self.lr() * gradients
         return weights
 
 
 class AdaGrad(Optimizer):
-    def __init__(self, learning_rate):
+    def __init__(self, learning_rate, weights):
         super().__init__(learning_rate)
+        self.states = dict()
+        for k,v in weights.items():
+            self.states[k] = np.zeros(v.shape)
+        self.eps = 1e-6
 
-    def update_weights(self, weights, gradients):
-        weights = weights - self.learning_rate * gradients
+    def lr(self):
+        return self.learning_rate
+
+    def update_weights(self, weights, gradients, *args, **args2):
+        for k, v in gradients.items():
+            self.states[k] += np.power(v, 2)
+            weights[k] -= self.learning_rate * v / np.sqrt(self.states[k] + self.eps)
+        return weights
+
+
+class RMSProp(Optimizer):
+    """
+    Root Mean Square Prop.
+    """
+    def __init__(self, learning_rate, weights, gamma=0.9):
+        super().__init__(learning_rate)
+        self.states = dict()
+        for k,v in weights.items():
+            self.states[k] = np.zeros(v.shape)
+        self.eps = 1e-6
+        self.gamma = gamma
+
+    def lr(self):
+        return self.learning_rate
+
+    def update_weights(self, weights, gradients, *args, **args2):
+        for k, v in gradients.items():
+            self.states[k] = self.states[k] * self.gamma + (1 - self.gamma) * np.power(v, 2)
+            weights[k] -= self.learning_rate * v / np.sqrt(self.states[k] + self.eps)
         return weights
