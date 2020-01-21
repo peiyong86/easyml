@@ -41,13 +41,35 @@ class FMParam:
         self.opt = opt
 
 
-class FM:
-    def __init__(self, param=None):
+class BaseAlgo:
+    def __init__(self, param):
         self.param = param
+        self.optimizer = None
+
+    def init_optimizer(self):
+        # optimizer
+        param = self.param
+        if param.opt == 'SGD':
+            self.optimizer = SGD(learning_rate=param.learning_rate,
+                                 decay=param.decay,
+                                 decay_step=param.decay_step)
+        elif param.opt == 'AdaGrad':
+            self.optimizer = AdaGrad(learning_rate=param.learning_rate)
+        elif param.opt == 'RMSProp':
+            self.optimizer = RMSProp(learning_rate=param.learning_rate)
+        elif param.opt == 'AdaDelta':
+            self.optimizer = AdaDelta()
+        else:
+            raise Exception("Unknow optimizer type {}".format(param.opt))
+
+
+class FM(BaseAlgo):
+    def __init__(self, param=None):
+        super().__init__(param)
 
         # Loss
         if param.loss == 'mse':
-            self.loss = MES()
+            self.loss = MSE()
         elif param.loss == 'log':
             self.loss = LogLoss()
         elif param.loss == 'taylor':
@@ -56,11 +78,10 @@ class FM:
             raise Exception('Unsupported loss type {}'.format(param.loss))
 
         # weights
-        # self.w = None
-        # self.embed = None
-        # self.b = None
         self.weights = {'w': None, 'embed': None, 'b': None}
-        self.optimizer = None
+
+        # init optimizer
+        self.init_optimizer()
 
         # train param
         # self.lr = param.lr
@@ -75,26 +96,6 @@ class FM:
         self.b = np.zeros(1) 
         self.embed = np.random.normal(scale=self.param.init_stdev, 
         	size=(feature_len, self.embed_size))
-        # init optimizer
-        self.init_optimizer()
-
-    def init_optimizer(self):
-        # optimizer
-        param = self.param
-        if param.opt == 'SGD':
-            self.optimizer = SGD(learning_rate=param.learning_rate, 
-                decay=param.decay, 
-                decay_step=param.decay_step)
-        elif param.opt == 'AdaGrad':
-            self.optimizer = AdaGrad(learning_rate=param.learning_rate, 
-                weights=self.weights)
-        elif param.opt == 'RMSProp':
-            self.optimizer = RMSProp(learning_rate=param.learning_rate, 
-                weights=self.weights)
-        elif param.opt == 'AdaDelta':
-            self.optimizer = AdaDelta(weights=self.weights)
-        else:
-            raise Exception("Unknow optimizer type {}".format(param.opt))
 
     @property
     def w(self):
@@ -121,12 +122,6 @@ class FM:
         self.weights['embed'] = embed
 
     def update_weights(self, gradient_w, gradient_embed, gradient_b, step):
-        # self.w = self.w - clip_gradient(lr * gradient_w)
-        # self.embed = self.embed - clip_gradient(lr * gradient_embed)
-        # self.b = self.b - clip_gradient(lr * gradient_b)
-        # self.w = self.optimizer.update_weights(self.w, gradient_w, step)
-        # self.embed = self.optimizer.update_weights(self.embed, gradient_embed, step)
-        # self.b = self.optimizer.update_weights(self.b, gradient_b, step)
         gradients = {'w': gradient_w, 'b': gradient_b, 'embed': gradient_embed}
         self.weights = self.optimizer.update_weights(self.weights, gradients, step)
 
@@ -147,7 +142,7 @@ class FM:
             # cross part
             cross_part.append(0.5 * np.sum(re - re2))
         if self.embed_size == 0:
-        	cross_part = 0
+            cross_part = 0
         forward = linear_part + cross_part + self.b
         return forward
 
@@ -269,7 +264,6 @@ class FM:
 
         re = {'auc': auc_score, 'accuracy': acu_score}
         return re
-
 
     def predict(self, data, verbose=False):
         data_generator = DataGenerator(data.features, None, self.predict_batch_size, yield_last=True)
