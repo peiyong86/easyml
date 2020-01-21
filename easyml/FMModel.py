@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 __author__ = "peiyong"
 
+from abc import ABC, abstractmethod
+
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
@@ -41,10 +43,15 @@ class FMParam:
         self.opt = opt
 
 
-class BaseAlgo:
+class BaseAlgo(ABC):
     def __init__(self, param):
         self.param = param
         self.optimizer = None
+        self.loss = None
+        self.weights = None
+
+        self.init_optimizer()
+        self.init_loss()
 
     def init_optimizer(self):
         # optimizer
@@ -62,12 +69,9 @@ class BaseAlgo:
         else:
             raise Exception("Unknow optimizer type {}".format(param.opt))
 
-
-class FM(BaseAlgo):
-    def __init__(self, param=None):
-        super().__init__(param)
-
+    def init_loss(self):
         # Loss
+        param = self.param
         if param.loss == 'mse':
             self.loss = MSE()
         elif param.loss == 'log':
@@ -77,107 +81,55 @@ class FM(BaseAlgo):
         else:
             raise Exception('Unsupported loss type {}'.format(param.loss))
 
-        # weights
-        self.weights = {'w': None, 'embed': None, 'b': None}
+    @abstractmethod
+    def cal_forward(self, features):
+        """Input data features and return model forward results.
+        """
+        pass
 
-        # init optimizer
-        self.init_optimizer()
+    @abstractmethod
+    def cal_gradient(self, pred, labels, features):
+        """Compute gradients of model weights, and returned as dict
+        """
+        pass
 
-        # train param
-        # self.lr = param.lr
-        self.embed_size = param.embed_size
-        self.iter_num = param.epochs
-        self.batch_size = param.batch_size
-        self.predict_batch_size = param.predict_batch_size
-
+    @abstractmethod
     def init_model(self, feature_len):
-        # init weights
-        self.w = np.zeros(feature_len)
-        self.b = np.zeros(1) 
-        self.embed = np.random.normal(scale=self.param.init_stdev, 
-        	size=(feature_len, self.embed_size))
+        pass
 
-    @property
-    def w(self):
-        return self.weights['w']
-
-    @w.setter
-    def w(self, w):
-        self.weights['w'] = w
-    
-    @property
-    def b(self):
-        return self.weights['b']
-
-    @b.setter
-    def b(self, b):
-        self.weights['b'] = b
-
-    @property
-    def embed(self):
-        return self.weights['embed']
-
-    @embed.setter
-    def embed(self, embed):
-        self.weights['embed'] = embed
-
-    def update_weights(self, gradient_w, gradient_embed, gradient_b, step):
-        gradients = {'w': gradient_w, 'b': gradient_b, 'embed': gradient_embed}
+    def update_weights(self, gradients, step):
         self.weights = self.optimizer.update_weights(self.weights, gradients, step)
 
-    def cal_forward(self, features):
-        linear_part = np.dot(features, self.w)
-        cross_part = []
+    def reg_loss(self):
+        reg_loss = 0
+        for k, v in self.weights.items():
+            reg_loss += np.sum(np.power(v, 2))
+        reg_loss *= 0.5
+        return reg_loss
 
-        for fea in features:
-            # (vx)^2
-            re = np.multiply(np.expand_dims(fea, 1), self.embed)
-            re = np.sum(re, 0)
-            re = np.power(re, 2)
-            # (v^2)*(x^2)
-            x_square = np.power(fea, 2)
-            v_square = np.power(self.embed, 2)
-            re2 = np.multiply(np.expand_dims(x_square, 1), v_square)
-            re2 = np.sum(re2, 0)
-            # cross part
-            cross_part.append(0.5 * np.sum(re - re2))
-        if self.embed_size == 0:
-            cross_part = 0
-        forward = linear_part + cross_part + self.b
-        return forward
 
-    def cal_gradient(self, pred, labels, features):
-        fore_gradient = self.loss.calculate_foregradient(pred, labels)
-        # print("fore_gradient {}".format(fore_gradient))
-        gradient_w = np.multiply(features, np.expand_dims(fore_gradient, 1))
-        gradient_w = np.mean(gradient_w, 0)
+class TrainingProcedure:
+    def __init__(self, param=None):
+        # defined in base algorithm class
+        self.param = param
+        self.optimizer = None
+        self.loss = None
 
-        gradient_embed = []
-        for i,fea in enumerate(features):
-            re = np.multiply(self.embed, np.expand_dims(fea, 1))
-            re = np.sum(re, 0)  # sum of x*v
-            re2 = np.multiply(np.expand_dims(re, 0), np.expand_dims(fea, 1))
-            re3 = np.multiply(np.expand_dims(np.power(fea, 2), 1), self.embed)
-            g = re2 - re3
-            gradient_embed.append(g*fore_gradient[i])
+    def cal_forward(self, data):
+        """Implemented in sub algorithm class"""
+        pass
 
-        gradient_embed = np.array(gradient_embed)
-        gradient_embed = np.mean(gradient_embed, 0)
+    def cal_gradient(self, pred, y, x):
+        """Implemented in sub algorithm class"""
+        pass
 
-        gradient_b = np.mean(fore_gradient)
-
-        gradient_w += self.param.regW * self.w
-        gradient_embed += self.param.regV * self.embed
-        # gradient_b += delta * self.b
-
-        # print([gradient_w, gradient_embed, gradient_b])
-        return [gradient_w, gradient_embed, gradient_b]
+    def update_weights(self, gradients, step):
+        """Implemented in base algorithm class"""
+        pass
 
     def reg_loss(self):
-        reg_loss = 0.5 * (np.sum(np.power(self.w, 2))
-                          + np.sum(np.power(self.embed, 2))
-                          + np.power(self.b, 2))
-        return reg_loss
+        """Implemented in base algorithm class"""
+        pass
 
     def fit(self, data):
         print("start fit")
@@ -192,17 +144,19 @@ class FM(BaseAlgo):
 
         train_loss_counter = Counter()
         reg_loss_counter = Counter()
-        data_generator = DataGenerator(features, labels, self.batch_size)
+        data_generator = DataGenerator(features,
+                                       labels,
+                                       self.param.batch_size)
         batch_num = data_generator.get_batch_num()
 
-        for i in range(self.iter_num):
+        for i in range(self.param.epochs):
             for batch_i, batch_data in enumerate(data_generator.data_generator()):
                 batch_x, batch_y = batch_data
                 pred = self.cal_forward(batch_x)
-                gradient_w, gradient_embed, gradient_b = self.cal_gradient(pred, batch_y, batch_x)
+                gradients = self.cal_gradient(pred, batch_y, batch_x)
 
                 # Update weights
-                self.update_weights(gradient_w, gradient_embed, gradient_b, step=i)
+                self.update_weights(gradients, step=i)
 
                 train_loss = self.loss.calculate_loss(pred, batch_y)
                 reg_loss = self.reg_loss()
@@ -239,34 +193,39 @@ class FM(BaseAlgo):
                     loss_count = 0
                 pre_loss = mean_train_loss
             # if loss_count == 3:
-                # break
+            # break
 
     def evaluate(self, data):
-        data_generator = DataGenerator(data.features, data.labels, 
-        	self.predict_batch_size, yield_last=True)
+        data_generator = DataGenerator(data.features,
+                                       data.labels,
+                                       self.param.predict_batch_size,
+                                       yield_last=True)
         labels = []
         preds = []
         for batch_x, batch_y in data_generator.data_generator():
             pred = self.cal_forward(batch_x)
             labels.append(batch_y)
             preds.append(pred)
-        
+
         labels = np.concatenate(labels)
         preds = np.concatenate(preds)
 
         auc_score = roc_auc_score(labels, preds)
 
         correct = 0
-        for p,y in zip(preds, labels):
-            if p*y>0:
+        for p, y in zip(preds, labels):
+            if p * y > 0:
                 correct += 1
-        acu_score = correct/len(preds)
+        acu_score = correct / len(preds)
 
         re = {'auc': auc_score, 'accuracy': acu_score}
         return re
 
     def predict(self, data, verbose=False):
-        data_generator = DataGenerator(data.features, None, self.predict_batch_size, yield_last=True)
+        data_generator = DataGenerator(data.features,
+                                       None,
+                                       self.param.predict_batch_size,
+                                       yield_last=True)
         batch_num = data_generator.get_batch_num()
 
         preds = []
@@ -276,12 +235,74 @@ class FM(BaseAlgo):
 
             if verbose:
                 log_str = ' '.join(map(str,
-                                   ['batch {}/{}'.format(batch_i, batch_num)
-                                    ]))
+                                       ['batch {}/{}'.format(batch_i, batch_num)
+                                        ]))
                 logger.log(log_str)
 
         preds = np.concatenate(preds)
         return preds
 
 
+class FM(BaseAlgo, TrainingProcedure):
+    def __init__(self, param=None):
+        super().__init__(param)
 
+        # weights
+        self.weights = {}
+
+        # train param
+        self.embed_size = param.embed_size
+
+    def init_model(self, feature_len):
+        # init weights
+        self.weights['w'] = np.zeros(feature_len)
+        self.weights['b'] = np.zeros(1)
+        self.weights['embed'] = np.random.normal(scale=self.param.init_stdev,
+                                                 size=(feature_len, self.embed_size))
+
+    def cal_forward(self, features):
+        linear_part = np.dot(features, self.weights['w'])
+        cross_part = []
+
+        for fea in features:
+            # (vx)^2
+            re = np.multiply(np.expand_dims(fea, 1), self.weights['embed'])
+            re = np.sum(re, 0)
+            re = np.power(re, 2)
+            # (v^2)*(x^2)
+            x_square = np.power(fea, 2)
+            v_square = np.power(self.weights['embed'], 2)
+            re2 = np.multiply(np.expand_dims(x_square, 1), v_square)
+            re2 = np.sum(re2, 0)
+            # cross part
+            cross_part.append(0.5 * np.sum(re - re2))
+        if self.embed_size == 0:
+            cross_part = 0
+        forward = linear_part + cross_part + self.weights['b']
+        return forward
+
+    def cal_gradient(self, pred, labels, features):
+        fore_gradient = self.loss.calculate_foregradient(pred, labels)
+        gradient_w = np.multiply(features, np.expand_dims(fore_gradient, 1))
+        gradient_w = np.mean(gradient_w, 0)
+
+        gradient_embed = []
+        for i,fea in enumerate(features):
+            re = np.multiply(self.weights['embed'], np.expand_dims(fea, 1))
+            re = np.sum(re, 0)  # sum of x*v
+            re2 = np.multiply(np.expand_dims(re, 0), np.expand_dims(fea, 1))
+            re3 = np.multiply(np.expand_dims(np.power(fea, 2), 1), self.weights['embed'])
+            g = re2 - re3
+            gradient_embed.append(g*fore_gradient[i])
+
+        gradient_embed = np.array(gradient_embed)
+        gradient_embed = np.mean(gradient_embed, 0)
+
+        gradient_b = np.mean(fore_gradient)
+
+        gradient_w += self.param.regW * self.weights['w']
+        gradient_embed += self.param.regV * self.weights['embed']
+        # gradient_b += delta * self.weights['b']
+
+        gradients = {'w': gradient_w, 'embed': gradient_embed, 'b': gradient_b}
+        return gradients
