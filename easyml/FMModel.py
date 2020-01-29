@@ -10,6 +10,7 @@ from .DataIO import DataGenerator
 from .Loss import LogLoss, MSE, TaylorLoss
 from .Optimizer import SGD, AdaGrad, RMSProp, AdaDelta
 from .Util import Counter, StdLogger, clip_gradient
+from .protobuf import modelweights_pb2
 
 
 logger = StdLogger()
@@ -48,7 +49,8 @@ class BaseAlgo(ABC):
         self.param = param
         self.optimizer = None
         self.loss = None
-        self.weights = None
+        self.weights = dict()
+        self.model_name = None
 
         self.init_optimizer()
         self.init_loss()
@@ -106,6 +108,33 @@ class BaseAlgo(ABC):
             reg_loss += np.sum(np.power(v, 2))
         reg_loss *= 0.5
         return reg_loss
+
+    def export_to_pb(self, filename):
+        weights_pb = modelweights_pb2.ModelWeights()
+        weights_pb.model_name = self.model_name
+
+        for k, v in self.weights.items():
+            w = modelweights_pb2.Weights()
+            w.value.extend(v.flatten())
+            w.shape.extend(v.shape)
+            weights_pb.weights[k].CopyFrom(w)
+
+        with open(filename, 'wb') as f:
+            f.write(weights_pb.SerializeToString())
+            f.close()
+
+    def load_from_pb(self, filename):
+        weights_pb = modelweights_pb2.ModelWeights()
+
+        with open(filename, 'rb') as f:
+            bytes = f.read()
+            weights_pb.ParseFromString(bytes)
+
+        self.model_name = weights_pb.model_name
+        for k in weights_pb.weights:
+            w_shape = weights_pb.weights[k].shape
+            w = np.array(weights_pb.weights[k].value).reshape(w_shape)
+            self.weights[k] = w
 
 
 class TrainingProcedure:
@@ -246,6 +275,9 @@ class TrainingProcedure:
 class FM(BaseAlgo, TrainingProcedure):
     def __init__(self, param=None):
         super().__init__(param)
+
+        # model_name
+        self.model_name = 'FactorizationMachine'
 
         # weights
         self.weights = {}
