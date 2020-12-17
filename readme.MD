@@ -1,6 +1,7 @@
 Algorithms:
 
 - Factorization Machine
+- Decision Tree
 
 Optimizer:
 
