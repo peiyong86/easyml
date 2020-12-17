@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+import collections
+
 import numpy as np
 import pandas as pd
 from scipy.sparse import *
@@ -43,6 +45,9 @@ def read_sparse(datafile):
 
 
 def read_dense(datafile):
+    """
+    each row: [y \t x1, x2, x3 ...]
+    """
     labels = []
     features = []
     with open(datafile, 'r') as f:
@@ -82,7 +87,8 @@ class DataSet:
     def __init__(self, features=None, labels=None):
         self.features = features
         self.labels = labels
-
+        self.n_features = None
+        self.n_samples = None
         self.sanity_check()
 
     def loaddata(self, datafile, type='dense'):
@@ -93,6 +99,7 @@ class DataSet:
                 self.features, self.labels = read_sparse(datafile)
             elif type == 'csv':
                 self.features, self.labels = read_csv(datafile, label_column_name = 'y')
+            self.sanity_check()
         except Exception as e:
             print(e)
             print("Incorrect input format.")
@@ -100,7 +107,29 @@ class DataSet:
     def sanity_check(self):
         if str(type(self.features)) == "<class 'scipy.sparse.coo.coo_matrix'>":
             self.features = self.features.tocsr()
+        if self.features is not None:
+            self.n_features = self.features.shape[1]
+            self.n_samples = self.features.shape[0]
 
+    def get_subset(self, attindex, attvalue):
+        indexes = self.features[:, attindex] == attvalue
+        return DataSet(features=self.features[indexes], labels=self.labels[indexes])
+
+    def entropy(self):
+        # labels to probability
+        count = collections.Counter(self.labels)
+        total = self.n_samples
+        probs = [v / total for k, v in count.items()]
+        # calculate information entropy
+        ent = sum([-p * np.log(p) for p in probs])
+        return ent
+
+    def get_att_values(self, pickindex):
+        """返回数据集种，属性index为pickindex的值的集合"""
+        return set(self.features[:, pickindex])
+
+    def __len__(self):
+        return self.n_samples
 
 class DataGenerator:
     def __init__(self, x, y=None, batch_size=None, yield_last=False):
