@@ -39,3 +39,18 @@ For Adagrad: $r=r+g^2$
 For RMSProp: $r=p*r+(1-p)*g^2$
 
 注：RMSProp在计算梯度累计时，使用了衰减系数p来减少间隔较久的历史梯度的影响，更加鲁棒。
+
+* AdaDelta
+
+
+
+Loss:
+
+* MSE
+
+$MSE=\frac{1}{n}\sum_{i=1}^n(\hat{y_i}-y_i)^2$
+
+* LogLoss（Binary）
+
+$LogLoss = -\frac{1}{n}\sum_{i=1}^n(y_i\log{p_i}+(1-y_i)\log{(1-p_i)})$
+
