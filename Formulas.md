@@ -16,6 +16,18 @@ Gradients of FM:
 
 2-order part: $$\frac{\partial f}{\partial v_i}=x_i * \sum_{i=1}^nv_{i,f}x_i - v_{i,f}x_i^2$$
 
+* Decision Tree
+
+We use information-gain to select the best split attribute.
+
+Information gain is amount of reduced entropy, compared between before and after data split with attribute A.
+
+$$Entropy(D)=-\sum_{i=1}^np_i\log{p_i}$$
+
+$$Gain(A) = Entropy(S) - \sum_{i=1}^n{w_i*Entropy(a_i)}$$
+
+where $$a_i\in{A}$$
+
 
 
 Optimizer:
